@@ -1,0 +1,54 @@
+{
+  "name": "@steadwing/node",
+  "version": "0.1.0",
+  "description": "Steadwing Node SDK — auto-captures exceptions, error logs and HTTP breadcrumbs",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/cjs/index.js",
+      "import": "./dist/esm/index.js",
+      "types": "./dist/types/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "npm run build:cjs && npm run build:esm && npm run build:types",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build:types": "tsc -p tsconfig.types.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "steadwing",
+    "error-monitoring",
+    "exception-capture",
+    "rca",
+    "root-cause-analysis",
+    "observability",
+    "express",
+    "fastify"
+  ],
+  "author": "Steadwing <hello@steadwing.com>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/steadwing/steadwing-node.git"
+  },
+  "homepage": "https://docs.steadwing.com/python-sdk",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "eslint": "^8.50.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}
