@@ -117,7 +117,7 @@ function patchPino(): void {
     const originalPino = pino;
 
     // Wrap pino to add our destination hook
-    const wrappedPino = function (...args: unknown[]) {
+    const wrappedPino = function (this: unknown, ...args: unknown[]) {
       const opts =
         typeof args[0] === "object" && args[0] !== null ? args[0] : {};
       const originalHooks = (opts as Record<string, unknown>).hooks || {};

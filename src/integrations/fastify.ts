@@ -10,7 +10,7 @@ export function patchFastify(onException: ExceptionCallback): void {
     const fastify = require("fastify");
     const originalFastify = fastify;
 
-    const wrappedFastify = function (...args: unknown[]) {
+    const wrappedFastify = function (this: unknown, ...args: unknown[]) {
       const app = originalFastify.apply(this, args);
 
       app.addHook(
