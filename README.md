@@ -12,7 +12,7 @@
 
 ## Overview
 
-The Steadwing Node SDK auto-instruments your application to capture exceptions, error logs, and HTTP breadcrumbs — then sends them to Steadwing for automated Root Cause Analysis.
+The Steadwing Node SDK auto-instruments your application to capture exceptions, error logs, and HTTP breadcrumbs and then sends them to Steadwing for automated Root Cause Analysis.
 
 **Key features:**
 
@@ -53,8 +53,8 @@ steadwing.init({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `apiKey` | `string` | — | Your Steadwing API key (required) |
-| `service` | `string` | — | Service name for grouping errors |
+| `apiKey` | `string` | - | Your Steadwing API key (required) |
+| `service` | `string` | - | Service name for grouping errors |
 | `env` | `string` | `"PROD"` | Deployment environment label |
 | `enabled` | `boolean` | `true` | Toggle SDK on/off |
 
@@ -66,9 +66,9 @@ steadwing.init({
 
 Once initialized, Steadwing automatically captures:
 
-- **Unhandled exceptions** — `uncaughtException` and `unhandledRejection`
-- **Error logs** — `console.error()`, winston error-level, pino error-level
-- **Breadcrumbs** — outgoing HTTP/HTTPS requests (rolling buffer of last 100)
+- **Unhandled exceptions** - `uncaughtException` and `unhandledRejection`
+- **Error logs** - `console.error()`, winston error-level, pino error-level
+- **Breadcrumbs** - outgoing HTTP/HTTPS requests (rolling buffer of last 100)
 
 ### Manual Capture
 
@@ -88,16 +88,45 @@ steadwing.captureMessage("Deployment completed", "info");
 
 ## Integrations
 
-Steadwing provides first-class support for popular Node.js frameworks:
+| Framework | What's Captured |
+|-----------|----------------|
+| **Express** | Route errors with request context (method, path, headers) |
+| **Fastify** | Route errors with request context via onError hook |
+| **winston** | Error-level log capture (auto-detected) |
+| **pino** | Error-level log capture (auto-detected) |
 
-| Framework | Auto-instrumentation |
-|-----------|---------------------|
-| **Express** | Error middleware with request context |
-| **Fastify** | onError hook with request context |
-| **winston** | Error-level log capture |
-| **pino** | Error-level log capture |
+### Express
 
-Integrations are automatically activated when the corresponding library is detected.
+```javascript
+const steadwing = require("@steadwing/node");
+const express = require("express");
+
+steadwing.init({ apiKey: "st_..." });
+
+const app = express();
+app.get("/", (req, res) => res.send("ok"));
+
+// Add as the last middleware
+app.use(steadwing.expressErrorHandler());
+
+app.listen(3000);
+```
+
+### Fastify
+
+```javascript
+const steadwing = require("@steadwing/node");
+const fastify = require("fastify");
+
+steadwing.init({ apiKey: "st_..." });
+
+const app = fastify();
+app.register(steadwing.fastifyErrorHandler());
+
+app.listen({ port: 3000 });
+```
+
+Winston and pino are captured automatically when installed, no extra code needed.
 
 ## Data Scrubbing
 
@@ -110,7 +139,7 @@ Sensitive data is automatically scrubbed from captured events. Keys matching the
 Full TypeScript support with exported types:
 
 ```typescript
-import { init, captureException, captureMessage } from "@steadwing/node";
+import { init, captureException, captureMessage, expressErrorHandler } from "@steadwing/node";
 import type { SteadwingConfig } from "@steadwing/node";
 
 const config: SteadwingConfig = {
@@ -133,8 +162,8 @@ npm test
 
 ## Community
 
-- [Discord](https://discord.gg/4rUP86tSXn) — Ask questions, share feedback, and connect with the team
-- [GitHub Issues](https://github.com/steadwing/steadwing-node/issues) — Report bugs or request features
+- [Discord](https://discord.gg/4rUP86tSXn) - Ask questions, share feedback, and connect with the team
+- [GitHub Issues](https://github.com/steadwing/steadwing-node/issues) - Report bugs or request features
 
 ## License
 

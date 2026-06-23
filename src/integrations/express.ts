@@ -7,11 +7,6 @@ export function patchExpress(onException: ExceptionCallback): void {
   onExceptionCb = onException;
 }
 
-/**
- * Express error-handling middleware. Add as the last middleware in your app:
- *
- *   app.use(steadwing.expressErrorHandler());
- */
 export function expressErrorHandler() {
   return function steadwingErrorHandler(
     err: Error,

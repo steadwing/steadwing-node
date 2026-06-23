@@ -7,11 +7,6 @@ export function patchFastify(onException: ExceptionCallback): void {
   onExceptionCb = onException;
 }
 
-/**
- * Fastify error handler plugin. Register with:
- *
- *   app.register(steadwing.fastifyErrorHandler());
- */
 export function fastifyErrorHandler() {
   return function steadwingPlugin(fastify: any, _opts: any, done: () => void) {
     fastify.addHook(
