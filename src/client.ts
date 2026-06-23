@@ -75,7 +75,7 @@ export class SteadwingClient {
     patchFastify(this.handleException.bind(this));
   }
 
-  private handleException(event: ExceptionEvent, flush: boolean): void {
+  handleException(event: ExceptionEvent, flush: boolean): void {
     if (!this.enabled || !this.transport) return;
 
     try {
@@ -90,7 +90,7 @@ export class SteadwingClient {
     }
   }
 
-  private handleLogEvent(logData: LogEvent): void {
+  handleLogEvent(logData: LogEvent): void {
     if (!this.enabled || !this.transport) return;
 
     try {

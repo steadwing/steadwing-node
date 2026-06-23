@@ -1,22 +1,24 @@
 import { buildExceptionEvent, type ExceptionCallback } from "../hooks";
 import { scrub } from "../scrubber";
 
-let patched = false;
+let onExceptionCb: ExceptionCallback | null = null;
 
 export function patchFastify(onException: ExceptionCallback): void {
-  if (patched) return;
+  onExceptionCb = onException;
+}
 
-  try {
-    const fastify = require("fastify");
-    const originalFastify = fastify;
-
-    const wrappedFastify = function (this: unknown, ...args: unknown[]) {
-      const app = originalFastify.apply(this, args);
-
-      app.addHook(
-        "onError",
-        (request: any, reply: any, error: Error, done: () => void) => {
-          try {
+/**
+ * Fastify error handler plugin. Register with:
+ *
+ *   app.register(steadwing.fastifyErrorHandler());
+ */
+export function fastifyErrorHandler() {
+  return function steadwingPlugin(fastify: any, _opts: any, done: () => void) {
+    fastify.addHook(
+      "onError",
+      (request: any, reply: any, error: Error, done: () => void) => {
+        try {
+          if (onExceptionCb) {
             const event = buildExceptionEvent(error);
             event.request_context = {
               method: request.method,
@@ -27,32 +29,18 @@ export function patchFastify(onException: ExceptionCallback): void {
               status_code: reply.statusCode >= 400 ? reply.statusCode : 500,
               headers: scrub(request.headers) as Record<string, unknown>,
             };
-            onException(event, false);
-          } catch {
-            // Silent
+            onExceptionCb(event, false);
           }
-          done();
+        } catch {
+          // Silent
         }
-      );
-
-      return app;
-    };
-
-    // Copy properties from original fastify
-    Object.assign(wrappedFastify, originalFastify);
-
-    // Replace in require cache
-    const cacheKey = require.resolve("fastify");
-    if (require.cache[cacheKey]) {
-      require.cache[cacheKey]!.exports = wrappedFastify;
-    }
-
-    patched = true;
-  } catch {
-    // fastify not installed
-  }
+        done();
+      }
+    );
+    done();
+  };
 }
 
 export function unpatchFastify(): void {
-  patched = false;
+  onExceptionCb = null;
 }

@@ -1,5 +1,3 @@
-import * as http from "http";
-import * as https from "https";
 import type { Breadcrumb } from "./types";
 
 const MAX_BREADCRUMBS = 100;
@@ -7,8 +5,10 @@ const breadcrumbs: Breadcrumb[] = [];
 let patched = false;
 let inSdkCall = false;
 
-let originalHttpRequest: typeof http.request | null = null;
-let originalHttpsRequest: typeof https.request | null = null;
+let originalHttpRequest: Function | null = null;
+let originalHttpGet: Function | null = null;
+let originalHttpsRequest: Function | null = null;
+let originalHttpsGet: Function | null = null;
 
 export function getBreadcrumbs(): Breadcrumb[] {
   return breadcrumbs.slice();
@@ -33,14 +33,8 @@ export function unmarkSdkCall(): void {
   inSdkCall = false;
 }
 
-function wrapRequest(
-  originalFn: typeof http.request,
-  protocol: string
-): typeof http.request {
-  return function wrappedRequest(
-    this: unknown,
-    ...args: Parameters<typeof http.request>
-  ): http.ClientRequest {
+function wrapRequest(originalFn: Function, protocol: string): Function {
+  return function wrappedRequest(this: unknown, ...args: unknown[]) {
     if (inSdkCall) {
       return originalFn.apply(this, args);
     }
@@ -48,7 +42,6 @@ function wrapRequest(
     const start = Date.now();
     const req = originalFn.apply(this, args);
 
-    // Extract method and URL from the request
     const method = req.method || "GET";
     let url = "";
     try {
@@ -58,7 +51,7 @@ function wrapRequest(
       } else if (urlArg instanceof URL) {
         url = urlArg.toString();
       } else if (typeof urlArg === "object" && urlArg !== null) {
-        const opts = urlArg as http.RequestOptions;
+        const opts = urlArg as Record<string, unknown>;
         const host = opts.hostname || opts.host || "unknown";
         const path = opts.path || "/";
         url = `${protocol}://${host}${path}`;
@@ -67,7 +60,7 @@ function wrapRequest(
       url = "unknown";
     }
 
-    req.on("response", (res: http.IncomingMessage) => {
+    req.on("response", (res: { statusCode?: number }) => {
       const durationMs = Date.now() - start;
       addBreadcrumb({
         type: "http",
@@ -96,24 +89,27 @@ function wrapRequest(
     });
 
     return req;
-  } as typeof http.request;
+  };
 }
 
 export function patchHttp(): void {
   if (patched) return;
 
   try {
-    originalHttpRequest = http.request;
-    (http as { request: typeof http.request }).request = wrapRequest(
-      originalHttpRequest,
-      "http"
-    );
+    const httpModule = require("http");
+    const httpsModule = require("https");
 
-    originalHttpsRequest = https.request;
-    (https as { request: typeof https.request }).request = wrapRequest(
-      originalHttpsRequest,
-      "https"
-    );
+    originalHttpRequest = httpModule.request;
+    httpModule.request = wrapRequest(originalHttpRequest!, "http");
+
+    originalHttpGet = httpModule.get;
+    httpModule.get = wrapRequest(originalHttpGet!, "http");
+
+    originalHttpsRequest = httpsModule.request;
+    httpsModule.request = wrapRequest(originalHttpsRequest!, "https");
+
+    originalHttpsGet = httpsModule.get;
+    httpsModule.get = wrapRequest(originalHttpsGet!, "https");
 
     patched = true;
   } catch {
@@ -125,12 +121,14 @@ export function unpatchHttp(): void {
   if (!patched) return;
 
   try {
-    if (originalHttpRequest) {
-      (http as { request: typeof http.request }).request = originalHttpRequest;
-    }
-    if (originalHttpsRequest) {
-      (https as { request: typeof https.request }).request = originalHttpsRequest;
-    }
+    const httpModule = require("http");
+    const httpsModule = require("https");
+
+    if (originalHttpRequest) httpModule.request = originalHttpRequest;
+    if (originalHttpGet) httpModule.get = originalHttpGet;
+    if (originalHttpsRequest) httpsModule.request = originalHttpsRequest;
+    if (originalHttpsGet) httpsModule.get = originalHttpsGet;
+
     patched = false;
   } catch {
     // Silent fail

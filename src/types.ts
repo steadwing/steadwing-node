@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as os from "os";
 import { execSync } from "child_process";
 
@@ -74,7 +75,6 @@ function getGitSha(): string | null {
 
 function getContainerId(): string | null {
   try {
-    const fs = require("fs");
     const content = fs.readFileSync("/proc/self/cgroup", "utf8");
     for (const line of content.split("\n")) {
       const parts = line.trim().split("/");

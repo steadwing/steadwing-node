@@ -59,7 +59,7 @@ function extractExceptionChain(
 }
 
 export function buildExceptionEvent(err: Error): ExceptionEvent {
-  const frames = parseStackTrace(err.stack);
+  const frames = parseStackTrace(err.stack).reverse();
   const traceback = err.stack || `${err.name}: ${err.message}`;
 
   return {

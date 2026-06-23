@@ -1,6 +1,3 @@
-import * as http from "http";
-import * as https from "https";
-import * as zlib from "zlib";
 import { createHash } from "crypto";
 import { markSdkCall, unmarkSdkCall } from "./breadcrumbs";
 import { SDK_VERSION } from "./types";
@@ -46,7 +43,7 @@ export class Transport {
   enqueue(event: Record<string, unknown>): void {
     try {
       // Truncate oversized events
-      let eventJson = JSON.stringify(event);
+      const eventJson = JSON.stringify(event);
       if (Buffer.byteLength(eventJson, "utf8") > MAX_EVENT_SIZE_BYTES) {
         if (event.traceback && typeof event.traceback === "string") {
           event.traceback =
@@ -100,7 +97,7 @@ export class Transport {
       const frames = event.frames || [];
       let keyStr: string;
       if (frames.length > 0) {
-        const topFrame = frames[0];
+        const topFrame = frames[frames.length - 1];
         keyStr = `${excType}:${topFrame.filename}:${topFrame.lineno}`;
       } else {
         keyStr = `${excType}:unknown`;
@@ -119,15 +116,16 @@ export class Transport {
 
     try {
       markSdkCall();
+      const zlib = require("zlib");
       const compressed = zlib.gzipSync(Buffer.from(payload, "utf8"), {
         level: 6,
       });
 
       const url = new URL(`${this.backendUrl}/api/ingest`);
       const isHttps = url.protocol === "https:";
-      const requestFn = isHttps ? https.request : http.request;
+      const httpModule = isHttps ? require("https") : require("http");
 
-      const req = requestFn(
+      const req = httpModule.request(
         {
           hostname: url.hostname,
           port: url.port || (isHttps ? 443 : 80),

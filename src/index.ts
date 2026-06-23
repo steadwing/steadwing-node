@@ -1,8 +1,11 @@
 import { SteadwingClient } from "./client";
 import { buildExceptionEvent } from "./hooks";
+import { expressErrorHandler } from "./integrations/express";
+import { fastifyErrorHandler } from "./integrations/fastify";
 import type { SteadwingConfig } from "./types";
 
 export type { SteadwingConfig } from "./types";
+export { expressErrorHandler, fastifyErrorHandler };
 
 export function init(config: SteadwingConfig): SteadwingClient {
   const existing = SteadwingClient.getInstance();
@@ -20,7 +23,7 @@ export function captureException(err?: Error | unknown): void {
   const error =
     err instanceof Error ? err : new Error(err ? String(err) : "Unknown error");
   const event = buildExceptionEvent(error);
-  (client as any).handleException(event, false);
+  client.handleException(event, false);
 }
 
 export function captureMessage(
@@ -30,7 +33,7 @@ export function captureMessage(
   const client = SteadwingClient.getInstance();
   if (!client) return;
 
-  (client as any).handleLogEvent({
+  client.handleLogEvent({
     message,
     level,
     timestamp: Date.now() / 1000,
