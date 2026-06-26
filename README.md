@@ -58,7 +58,7 @@ steadwing.init({
 | `env` | `string` | `"PROD"` | Deployment environment (`"PROD"`, `"DEV"`, etc.) |
 | `enabled` | `boolean` | `true` | Toggle SDK on/off |
 
-> The backend URL can also be set via the `STEADWING_BACKEND_URL` environment variable.
+> **Note:** Only events sent with `env="PROD"` are considered for auto-monitoring. Events from other environments are received but will not trigger automated RCA.
 
 ## Usage
 
