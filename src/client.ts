@@ -32,7 +32,7 @@ export class SteadwingClient {
 
   constructor(config: SteadwingConfig) {
     this.apiKey = config.apiKey;
-    this.service = config.service;
+    this.service = config.service || "default";
     this.env = config.env || "PROD";
     this.enabled = config.enabled !== false;
     this.backendUrl =

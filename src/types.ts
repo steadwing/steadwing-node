@@ -6,7 +6,7 @@ export const SDK_VERSION = "0.1.0";
 
 export interface SteadwingConfig {
   apiKey: string;
-  service: string;
+  service?: string;
   env?: string;
   enabled?: boolean;
 }

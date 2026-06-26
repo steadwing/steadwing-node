@@ -1,6 +1,6 @@
 {
   "name": "@steadwing/node",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Steadwing Node SDK — auto-captures exceptions, error logs and HTTP breadcrumbs",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
@@ -41,7 +41,7 @@
     "type": "git",
     "url": "https://github.com/steadwing/steadwing-node.git"
   },
-  "homepage": "https://docs.steadwing.com/python-sdk",
+  "homepage": "https://docs.steadwing.com/node-sdk",
   "engines": {
     "node": ">=18.0.0"
   },

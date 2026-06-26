@@ -45,8 +45,8 @@ That's it. Steadwing is now capturing errors in your application.
 ```javascript
 steadwing.init({
   apiKey: "st_...",          // Required: your API key
-  service: "my-service",    // Service name for grouping
-  env: "PROD",              // Deployment environment
+  service: "my-service",    // Service name for grouping (default: "default")
+  env: "PROD",              // Deployment environment (default: "PROD")
   enabled: true,            // Set false to disable
 });
 ```
@@ -54,8 +54,8 @@ steadwing.init({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `apiKey` | `string` | - | Your Steadwing API key (required) |
-| `service` | `string` | - | Service name for grouping errors |
-| `env` | `string` | `"PROD"` | Deployment environment label |
+| `service` | `string` | `"default"` | Service name for grouping errors |
+| `env` | `string` | `"PROD"` | Deployment environment (`"PROD"`, `"DEV"`, etc.) |
 | `enabled` | `boolean` | `true` | Toggle SDK on/off |
 
 > The backend URL can also be set via the `STEADWING_BACKEND_URL` environment variable.
