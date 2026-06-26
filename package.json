@@ -1,6 +1,6 @@
 {
   "name": "@steadwing/node",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Steadwing Node SDK — auto-captures exceptions, error logs and HTTP breadcrumbs",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
