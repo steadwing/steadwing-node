@@ -16,6 +16,23 @@ interface DedupEntry {
   event: Record<string, unknown>;
 }
 
+interface SendResult {
+  ok: boolean;
+  status: number | null;
+  error?: string;
+}
+
+export type DeliveryStatus = "ok" | "degraded" | "unauthorized" | "never_sent";
+
+export interface TransportHealth {
+  status: DeliveryStatus;
+  lastStatusCode: number | null;
+  lastError: string | null;
+  eventsSent: number;
+  eventsDropped: number;
+  queued: number;
+}
+
 export class Transport {
   private apiKey: string;
   private backendUrl: string;
@@ -24,6 +41,15 @@ export class Transport {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private shutdown = false;
 
+  // Delivery health / diagnostics.
+  private authFailed = false;
+  private authWarned = false;
+  private lastStatusCode: number | null = null;
+  private lastError: string | null = null;
+  private hadSuccess = false;
+  private eventsSent = 0;
+  private eventsDropped = 0;
+
   constructor(apiKey: string, backendUrl: string) {
     this.apiKey = apiKey;
     this.backendUrl = backendUrl.replace(/\/$/, "");
@@ -31,7 +57,7 @@ export class Transport {
 
   start(): void {
     this.flushTimer = setInterval(() => {
-      this.flush();
+      void this.flush();
     }, FLUSH_INTERVAL_MS);
 
     // Don't keep the process alive just for flushing
@@ -80,11 +106,14 @@ export class Transport {
         }
       }
 
-      if (this.queue.length >= MAX_QUEUE_SIZE) return;
+      if (this.queue.length >= MAX_QUEUE_SIZE) {
+        this.eventsDropped += 1;
+        return;
+      }
       this.queue.push(event);
 
       if (this.queue.length >= FLUSH_BATCH_SIZE) {
-        this.flush();
+        void this.flush();
       }
     } catch {
       // Silent
@@ -108,69 +137,172 @@ export class Transport {
     }
   }
 
-  flush(): void {
+  /**
+   * Flush queued events, inspecting the response so failures aren't lost:
+   * a rejected key stops delivery (warned once), permanent client errors drop
+   * the batch, and transient failures (429/5xx/network) are put back on the
+   * queue to retry on the next flush. Resolves when the request completes.
+   */
+  async flush(): Promise<void> {
+    if (this.authFailed) {
+      // Known-bad key — draining keeps memory bounded without pointless calls.
+      this.eventsDropped += this.queue.length;
+      this.queue = [];
+      return;
+    }
     if (this.queue.length === 0) return;
 
     const batch = this.queue.splice(0);
-    const payload = JSON.stringify({ events: batch });
-
+    let result: SendResult;
     try {
-      markSdkCall();
       const zlib = require("zlib");
-      const compressed = zlib.gzipSync(Buffer.from(payload, "utf8"), {
-        level: 6,
-      });
-
-      const url = new URL(`${this.backendUrl}/api/ingest`);
-      const isHttps = url.protocol === "https:";
-      const httpModule = isHttps ? require("https") : require("http");
-
-      const req = httpModule.request(
-        {
-          hostname: url.hostname,
-          port: url.port || (isHttps ? 443 : 80),
-          path: url.pathname,
-          method: "POST",
-          timeout: HTTP_TIMEOUT_MS,
-          headers: {
-            "X-API-Key": this.apiKey,
-            "X-Steadwing-SDK-Version": `node/${SDK_VERSION}`,
-            "Content-Type": "application/json",
-            "Content-Encoding": "gzip",
-            "Content-Length": compressed.length,
-          },
-        },
-        () => {
-          // Response ignored — fire and forget
-        }
+      const compressed = zlib.gzipSync(
+        Buffer.from(JSON.stringify({ events: batch }), "utf8"),
+        { level: 6 }
       );
+      result = await this.send(compressed);
+    } catch (err) {
+      result = { ok: false, status: null, error: String(err) };
+    }
 
-      req.on("error", () => {
-        // Silent — backend down, drop events
-      });
-      req.on("timeout", () => {
-        req.destroy();
-      });
-
-      req.write(compressed);
-      req.end();
-    } catch {
-      // Silent
-    } finally {
-      unmarkSdkCall();
+    if (result.ok) {
+      this.hadSuccess = true;
+      this.eventsSent += batch.length;
+      this.lastStatusCode = result.status;
+      this.lastError = null;
+    } else if (result.status === 401 || result.status === 403) {
+      this.authFailed = true;
+      this.lastStatusCode = result.status;
+      this.lastError = `authentication rejected (HTTP ${result.status})`;
+      this.eventsDropped += batch.length;
+      if (!this.authWarned) {
+        this.authWarned = true;
+        // eslint-disable-next-line no-console
+        console.error(
+          `[steadwing] API key rejected (HTTP ${result.status}). Events will ` +
+            `NOT be delivered. Check your Steadwing API key.`
+        );
+      }
+    } else if (
+      result.status !== null &&
+      result.status >= 400 &&
+      result.status < 500 &&
+      result.status !== 429
+    ) {
+      // Other 4xx won't be fixed by retrying this payload — drop it.
+      this.lastStatusCode = result.status;
+      this.lastError = `HTTP ${result.status}`;
+      this.eventsDropped += batch.length;
+    } else {
+      // Transient: 429, 5xx, network error, timeout — retain and retry.
+      this.lastStatusCode = result.status;
+      this.lastError = result.error ?? `HTTP ${result.status}`;
+      this.queue = batch.concat(this.queue).slice(0, MAX_QUEUE_SIZE);
     }
   }
 
-  flushSync(): void {
-    this.flush();
+  private send(compressed: Buffer): Promise<SendResult> {
+    return new Promise<SendResult>((resolve) => {
+      let settled = false;
+      const done = (r: SendResult) => {
+        if (!settled) {
+          settled = true;
+          resolve(r);
+        }
+      };
+
+      try {
+        markSdkCall();
+        const url = new URL(`${this.backendUrl}/api/ingest`);
+        const isHttps = url.protocol === "https:";
+        const httpModule = isHttps ? require("https") : require("http");
+
+        const req = httpModule.request(
+          {
+            hostname: url.hostname,
+            port: url.port || (isHttps ? 443 : 80),
+            path: url.pathname,
+            method: "POST",
+            timeout: HTTP_TIMEOUT_MS,
+            headers: {
+              "X-API-Key": this.apiKey,
+              "X-Steadwing-SDK-Version": `node/${SDK_VERSION}`,
+              "Content-Type": "application/json",
+              "Content-Encoding": "gzip",
+              "Content-Length": compressed.length,
+            },
+          },
+          (res: { statusCode?: number; resume: () => void }) => {
+            const status = res.statusCode ?? 0;
+            res.resume(); // drain so the socket frees
+            done({ ok: status >= 200 && status < 300, status });
+          }
+        );
+
+        req.on("error", (e: Error) =>
+          done({ ok: false, status: null, error: e.message })
+        );
+        req.on("timeout", () => req.destroy(new Error("request timeout")));
+
+        req.write(compressed);
+        req.end();
+      } catch (err) {
+        done({ ok: false, status: null, error: String(err) });
+      } finally {
+        // Only request creation needs to be marked; the async response makes no
+        // new outbound requests.
+        unmarkSdkCall();
+      }
+    });
   }
 
-  stop(): void {
+  /**
+   * Best-effort flush that resolves within `timeoutMs` even on a slow network,
+   * so a crash/exit event is sent without blocking process teardown forever.
+   */
+  async flushAndWait(timeoutMs: number): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+      if (timer.unref) timer.unref();
+    });
+    try {
+      await Promise.race([this.flush(), timeout]);
+    } catch {
+      // Never throw from a flush.
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** Snapshot of delivery health for diagnostics. */
+  getHealth(): TransportHealth {
+    let status: DeliveryStatus;
+    if (this.authFailed) {
+      status = "unauthorized";
+    } else if (!this.hadSuccess && this.lastError === null) {
+      status = "never_sent";
+    } else if (this.lastError !== null) {
+      status = "degraded";
+    } else {
+      status = "ok";
+    }
+    return {
+      status,
+      lastStatusCode: this.lastStatusCode,
+      lastError: this.lastError,
+      eventsSent: this.eventsSent,
+      eventsDropped: this.eventsDropped,
+      queued: this.queue.length,
+    };
+  }
+
+  stop(): Promise<void> {
     this.shutdown = true;
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
       this.flushTimer = null;
     }
-    this.flush();
+    return this.flushAndWait(HTTP_TIMEOUT_MS);
   }
 }

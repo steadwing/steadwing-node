@@ -3,8 +3,10 @@ import { buildExceptionEvent } from "./hooks";
 import { expressErrorHandler } from "./integrations/express";
 import { fastifyErrorHandler } from "./integrations/fastify";
 import type { SteadwingConfig } from "./types";
+import type { TransportHealth } from "./transport";
 
 export type { SteadwingConfig } from "./types";
+export type { TransportHealth } from "./transport";
 export { expressErrorHandler, fastifyErrorHandler };
 
 export function init(config: SteadwingConfig): SteadwingClient {
@@ -38,4 +40,14 @@ export function captureMessage(
     level,
     timestamp: Date.now() / 1000,
   });
+}
+
+/**
+ * Current delivery health — lets an app verify events are actually reaching
+ * Steadwing instead of silently failing (e.g. bad key, backend down).
+ * Returns null if the SDK has not been initialized.
+ */
+export function getHealth(): TransportHealth | null {
+  const client = SteadwingClient.getInstance();
+  return client ? client.getHealth() : null;
 }

@@ -8,10 +8,11 @@ const MAX_LOCAL_VAR_LENGTH = 1024;
 export type ExceptionCallback = (
   event: ExceptionEvent,
   flush: boolean
-) => void;
+) => void | Promise<void>;
 
 let onExceptionCallback: ExceptionCallback | null = null;
 let patched = false;
+let terminating = false;
 
 function parseStackTrace(stack: string | undefined): StackFrame[] {
   if (!stack) return [];
@@ -72,30 +73,53 @@ export function buildExceptionEvent(err: Error): ExceptionEvent {
   };
 }
 
-function handleUncaughtException(err: Error): void {
+/**
+ * Restore Node's default fatal behavior after capturing the error.
+ *
+ * Registering an "uncaughtException"/"unhandledRejection" listener overrides
+ * Node's default crash-and-exit. An observability SDK must not silently keep a
+ * process alive in a corrupted state, so once the event has been flushed we
+ * replicate the default: print the error and exit non-zero — but ONLY if we are
+ * the sole listener. If the application registered its own handler, it has taken
+ * ownership of termination and we defer to it.
+ */
+function restoreFatalBehavior(eventName: "uncaughtException" | "unhandledRejection", err: Error): void {
+  if (terminating) return;
+  if (process.listenerCount(eventName) > 1) return; // app owns termination
+  terminating = true;
   try {
-    if (onExceptionCallback) {
-      const event = buildExceptionEvent(err);
-      onExceptionCallback(event, true);
-    }
+    // eslint-disable-next-line no-console
+    console.error(err);
   } catch {
-    // Never throw from the error handler
+    // ignore
   }
+  process.exit(1);
 }
 
-function handleUnhandledRejection(reason: unknown): void {
+async function handleUncaughtException(err: Error): Promise<void> {
   try {
     if (onExceptionCallback) {
-      const err =
-        reason instanceof Error
-          ? reason
-          : new Error(String(reason));
       const event = buildExceptionEvent(err);
-      onExceptionCallback(event, true);
+      await onExceptionCallback(event, true);
     }
   } catch {
     // Never throw from the error handler
   }
+  restoreFatalBehavior("uncaughtException", err);
+}
+
+async function handleUnhandledRejection(reason: unknown): Promise<void> {
+  const err =
+    reason instanceof Error ? reason : new Error(String(reason));
+  try {
+    if (onExceptionCallback) {
+      const event = buildExceptionEvent(err);
+      await onExceptionCallback(event, true);
+    }
+  } catch {
+    // Never throw from the error handler
+  }
+  restoreFatalBehavior("unhandledRejection", err);
 }
 
 export function patchHooks(onException: ExceptionCallback): void {

@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as os from "os";
 import { execSync } from "child_process";
 
-export const SDK_VERSION = "0.1.0";
+export const SDK_VERSION = "0.1.4";
 
 export interface SteadwingConfig {
   apiKey: string;

@@ -3,7 +3,7 @@ import { patchHooks, type ExceptionCallback } from "./hooks";
 import { installLogging } from "./logging";
 import { patchExpress } from "./integrations/express";
 import { patchFastify } from "./integrations/fastify";
-import { Transport } from "./transport";
+import { Transport, type TransportHealth } from "./transport";
 import {
   baseEvent,
   buildRuntimeInfo,
@@ -16,6 +16,8 @@ import {
 
 const DEFAULT_BACKEND_URL = "https://api.steadwing.com";
 const HEARTBEAT_INTERVAL_MS = 60000;
+const FATAL_FLUSH_TIMEOUT_MS = 2000;
+type TerminationSignal = "SIGTERM" | "SIGINT";
 
 export class SteadwingClient {
   private static instance: SteadwingClient | null = null;
@@ -29,6 +31,7 @@ export class SteadwingClient {
   private transport: Transport | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private isShutdown = false;
+  private signalHandlers: Partial<Record<TerminationSignal, () => void>> = {};
 
   constructor(config: SteadwingConfig) {
     this.apiKey = config.apiKey;
@@ -64,10 +67,38 @@ export class SteadwingClient {
     // Start heartbeat
     this.startHeartbeat();
 
-    // Graceful shutdown
-    process.on("beforeExit", () => this.shutdown());
-    process.on("SIGTERM", () => this.shutdown());
-    process.on("SIGINT", () => this.shutdown());
+    // Graceful shutdown. beforeExit fires when the loop drains naturally; the
+    // signal handlers flush and then restore default termination so the SDK is
+    // never the reason a container fails to stop.
+    process.on("beforeExit", () => {
+      void this.shutdown();
+    });
+    for (const signal of ["SIGTERM", "SIGINT"] as TerminationSignal[]) {
+      const handler = () => {
+        void this.handleSignal(signal);
+      };
+      this.signalHandlers[signal] = handler;
+      process.on(signal, handler);
+    }
+  }
+
+  private async handleSignal(signal: TerminationSignal): Promise<void> {
+    await this.shutdown();
+
+    // process.on() only ADDS a listener, so ours suppressed Node's default
+    // termination without replacing any handler the app installed (those still
+    // ran on this same signal). Remove ONLY our listener; if none remain, the
+    // SDK was the only thing preventing exit — re-raise so the default action
+    // (terminate) takes effect. If the app kept its own handler, it owns
+    // termination and we leave it be.
+    const handler = this.signalHandlers[signal];
+    if (handler) {
+      process.removeListener(signal, handler);
+      delete this.signalHandlers[signal];
+    }
+    if (process.listenerCount(signal) === 0) {
+      process.kill(process.pid, signal);
+    }
   }
 
   private tryPatchFrameworks(): void {
@@ -75,7 +106,7 @@ export class SteadwingClient {
     patchFastify(this.handleException.bind(this));
   }
 
-  handleException(event: ExceptionEvent, flush: boolean): void {
+  async handleException(event: ExceptionEvent, flush: boolean): Promise<void> {
     if (!this.enabled || !this.transport) return;
 
     try {
@@ -83,11 +114,18 @@ export class SteadwingClient {
       const fullEvent = { ...base, ...event };
       this.transport.enqueue(fullEvent);
       if (flush) {
-        this.transport.flushSync();
+        // Fatal path — wait (bounded) so the crash event reaches the backend
+        // before the process exits, without blocking teardown indefinitely.
+        await this.transport.flushAndWait(FATAL_FLUSH_TIMEOUT_MS);
       }
     } catch {
       // Silent
     }
+  }
+
+  /** Delivery health snapshot for diagnostics. */
+  getHealth(): TransportHealth | null {
+    return this.transport ? this.transport.getHealth() : null;
   }
 
   handleLogEvent(logData: LogEvent): void {
@@ -126,7 +164,7 @@ export class SteadwingClient {
     }
   }
 
-  private shutdown(): void {
+  private async shutdown(): Promise<void> {
     if (this.isShutdown) return;
     this.isShutdown = true;
 
@@ -136,7 +174,7 @@ export class SteadwingClient {
     }
 
     if (this.transport) {
-      this.transport.stop();
+      await this.transport.stop();
     }
   }
 
