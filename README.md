@@ -19,7 +19,7 @@ The Steadwing Node SDK auto-instruments your application to capture exceptions, 
 - Automatic exception capture (`uncaughtException` + `unhandledRejection`)
 - `console.error()`, winston, and pino error-level log forwarding
 - HTTP request breadcrumbs for debugging context
-- Built-in data scrubbing for sensitive fields
+- Built-in data scrubbing for sensitive request header fields
 - Framework integrations for Express and Fastify
 
 ## Installation
@@ -130,9 +130,11 @@ Winston and pino are captured automatically when installed, no extra code needed
 
 ## Data Scrubbing
 
-Sensitive data is automatically scrubbed from captured events. Keys matching the following patterns (case-insensitive) have their values replaced with `[REDACTED]`:
+Built-in redaction covers selected structured fields. For supported framework integrations (Express, Fastify), the SDK replaces values whose exact field name matches the list below (case-insensitive) in captured request headers.
 
 `password` · `passwd` · `secret` · `api_key` · `apikey` · `token` · `auth` · `authorization` · `cookie` · `csrf` · `session` · `credit_card` · `ssn`
+
+Redaction does **not** scan free-text logs, exception messages, stack traces, URLs or query strings, SQL, or values embedded inside strings. If your application may include sensitive data in these contexts, implement additional scrubbing at the application level before the data reaches Steadwing.
 
 ## TypeScript
 
